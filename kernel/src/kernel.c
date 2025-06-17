@@ -10,6 +10,9 @@ void inicializar_kernel(){
     imprimir_configs();
     inicializar_sincronizacion();
     inicializar_semaforos();
+
+    // Inicializar lista de operaciones I/O
+    operaciones_io_activas = list_create();
 }
 
 void inicializar_logs(){
@@ -347,6 +350,8 @@ void* atender_cpu_dispatch() {
                 eliminar_paquete(paquete_respuesta);
                 pthread_mutex_unlock(&mutex_syscall_kernel);
                 
+                sem_post(&sem_syscall_procesada);
+
                 log_info(kernel_logger, "Respuesta enviada al CPU, listo para próxima syscall");
                 break;
             }
@@ -354,7 +359,7 @@ void* atender_cpu_dispatch() {
                 log_warning(kernel_logger, "Operación no reconocida de CPU: %d", cod_op);
                 break;
         }
-        sem_post(&sem_syscall_procesada);
+
     }
 
     // Limpieza final
@@ -413,18 +418,96 @@ bool procesar_syscall(char* syscall) {
 }
 
 
+// Función para simular operación de I/O en hilo separado
+void* ejecutar_operacion_io(void* arg) {
+    t_operacion_io* operacion = (t_operacion_io*)arg;
+    
+    log_info(kernel_logger, "Iniciando operación I/O en %s por %d ms", operacion->dispositivo, operacion->tiempo_ms);
+    printf("Kernel > [I/O] Iniciando operación en %s (%d ms)\n", operacion->dispositivo, operacion->tiempo_ms);
+    
+    // Simular el tiempo real de la operación I/O
+    usleep(operacion->tiempo_ms * 1000); // convertir ms a microsegundos
+    
+    operacion->completada = true;
+    
+    log_info(kernel_logger, "Operación I/O completada en %s", operacion->dispositivo);
+    printf("Kernel > [I/O] Operación completada en %s\n", operacion->dispositivo);
+    
+    // Aca se debería notificar al CPU que la I/O terminó
+    // Esto podría ser mediante un mensaje, señal, etc.
+    // Por simplicidad, se marca como completado
+    
+    return NULL;
+}
+
 
 bool procesar_io_syscall(char* syscall) {
     printf("Kernel > Procesando operación de E/S: %s\n", syscall);
     log_info(kernel_logger, "Procesando I/O syscall: %s", syscall);
     
-    // Simular tiempo de E/S
-    usleep(50000); // 50ms
+    // Parsear la syscall: "IO DISPOSITIVO TIEMPO"
+    char* dispositivo = NULL;
+    int tiempo_io = 0;
     
-    printf("Kernel > I/O completada: %s\n", syscall);
+    // Crear una copia para parsear sin modificar el original
+    char syscall_copy[256];
+    strncpy(syscall_copy, syscall, sizeof(syscall_copy) - 1);
+    syscall_copy[sizeof(syscall_copy) - 1] = '\0';
+    
+    // Parsear la línea
+    char* token = strtok(syscall_copy, " ");
+    if (token != NULL && strcmp(token, "IO") == 0) {
+        token = strtok(NULL, " "); // dispositivo
+        if (token != NULL) {
+            dispositivo = strdup(token);
+            token = strtok(NULL, " "); // tiempo
+            if (token != NULL) {
+                tiempo_io = atoi(token);
+            }
+        }
+    }
+    
+    if (dispositivo == NULL || tiempo_io <= 0) {
+        log_error(kernel_logger, "Formato de syscall I/O inválido: %s", syscall);
+        printf("Kernel > Error: formato I/O inválido: %s\n", syscall);
+        if (dispositivo) free(dispositivo);
+        return false;
+    }
+    
+    // Crear estructura de operación I/O
+    t_operacion_io* operacion = malloc(sizeof(t_operacion_io));
+    operacion->dispositivo = dispositivo;
+    operacion->tiempo_ms = tiempo_io;
+    operacion->completada = false;
+    
+    // Agregar a la lista de operaciones activas
+    pthread_mutex_lock(&mutex_io_activas);
+    list_add(operaciones_io_activas, operacion);
+    pthread_mutex_unlock(&mutex_io_activas);
+    
+    // Crear hilo para ejecutar la operación I/O
+    if (pthread_create(&operacion->hilo_io, NULL, ejecutar_operacion_io, operacion) != 0) {
+        log_error(kernel_logger, "Error al crear hilo de I/O para %s", dispositivo);
+        
+        // Limpiar en caso de error
+        pthread_mutex_lock(&mutex_io_activas);
+        list_remove_element(operaciones_io_activas, operacion);
+        pthread_mutex_unlock(&mutex_io_activas);
+        
+        free(dispositivo);
+        free(operacion);
+        return false;
+    }
+    
+    // Detach del hilo para que se libere automáticamente
+    pthread_detach(operacion->hilo_io);
+    
+    log_info(kernel_logger, "Operación I/O iniciada para %s (%d ms)", dispositivo, tiempo_io);
+    printf("Kernel > I/O iniciada en %s por %d ms (operación asíncrona)\n", dispositivo, tiempo_io);
     
     return true;
 }
+
 
 bool procesar_init_proc_syscall(char* syscall) {
     printf("Kernel > Inicializando proceso: %s\n", syscall);

@@ -442,6 +442,7 @@ void* recibir_contenido_paquete(int* size, int socket_cliente) {
     return contenido;
 }
 
+/*
 // Función para recibir un paquete completo (estructura t_paquete)
 t_paquete* recibir_paquete_completo(t_log* logger, int socket_cliente) {
     if (socket_cliente <= 0) {
@@ -512,7 +513,7 @@ t_paquete* recibir_paquete_completo(t_log* logger, int socket_cliente) {
     
     return paquete;
 }
-
+*/
 
 bool limpiar_buffer(int socket_fd) {
     if (socket_fd <= 0) {
@@ -574,4 +575,33 @@ bool limpiar_buffer(int socket_fd) {
     }
 
     return buffer_limpio;
+}
+
+
+int recibir_paquete_completo(t_log* logger, int socket, void** buffer) {
+    uint32_t header[2]; // cod_op y tamaño
+    
+    // 1. Recibir encabezado fijo (8 bytes)
+    int recibido = recv(socket, header, sizeof(header), MSG_WAITALL);
+    if(recibido != sizeof(header)) {
+        if(recibido == 0) return -1; // Conexión cerrada
+        return 0; // Error
+    }
+    
+    uint32_t cod_op = ntohl(header[0]);
+    uint32_t tamanio = ntohl(header[1]);
+    
+    if(logger) {
+        log_info(logger, "Recibido cod_op: %d, tamaño: %d", cod_op, tamanio);
+    }
+
+    // 2. Reservar y recibir payload
+    *buffer = malloc(tamanio);
+    recibido = recv(socket, *buffer, tamanio, MSG_WAITALL);
+    if(recibido != (ssize_t)tamanio) {
+        free(*buffer);
+        return 0;
+    }
+    
+    return cod_op;
 }

@@ -312,30 +312,32 @@ void recibir_instruccion(int fd_memoria) {
         enviar_paquete(paquete, fd_memoria);
         eliminar_paquete(paquete);
 
+        pthread_mutex_unlock(&mutex_comunicacion_memoria);
+
         log_info(cpu_logger, "SOLICITUD_INSTRUCCION enviada");
         
         // Esperar respuesta de Memoria
         int cod_op = recibir_operacion(cpu_logger, fd_memoria);
         log_info(cpu_logger, "Recibido cod_op: %d", cod_op);
 
-        pthread_mutex_unlock(&mutex_comunicacion_memoria);
+        
 
         if(cod_op == -1) {
             log_error(cpu_logger, "Error en la conexión con Memoria");
-            continuar = false;
-            return;
+            break;
         }
 
         // Verificación adicional del código de operación
         if(cod_op == 0) {   
-            log_warning(cpu_logger, "Se recibió cod_op 0, verificando estado de la conexión");
-            // Posiblemente leer un byte adicional para ver si hay datos residuales
+            log_warning(cpu_logger, "Recibido cod_op inválido (0), limpiando buffer...");
+            /*
             char byte_extra;
             if(recv(fd_memoria, &byte_extra, 1, MSG_PEEK) > 0) {
                 log_warning(cpu_logger, "Hay datos residuales en el buffer: %02x", byte_extra);
             }
-            pthread_mutex_unlock(&mutex_comunicacion_memoria);
-            usleep(10000); // Pausa de 10ms antes de reintentar
+            */
+            limpiar_buffer_completo(fd_memoria);
+            usleep(100000); // Pausa antes de reintentar
             continue;
         }
 
@@ -404,6 +406,7 @@ void procesar_instruccion(char* instruccion) {
 
     // Verificar si es una syscall
     if(es_syscall(instruccion)) {
+        syscall_en_proceso = true;
         log_info(cpu_logger, "Detectada syscall, enviando al hilo de kernel dispatch");
         
         // Enviar la syscall al hilo de kernel dispatch
@@ -424,6 +427,7 @@ void procesar_instruccion(char* instruccion) {
         sem_wait(&sem_instruccion_procesada);
         
         log_info(cpu_logger, "Syscall %s procesada completamente", instruccion);
+        syscall_en_proceso = false; // Resetear el estado de syscall
     }
     else {
         // Procesar instrucciones normales
@@ -460,3 +464,5 @@ bool es_syscall(char* instruccion) {
             strncmp(instruccion, "EXIT", 4) == 0
     );
 }
+
+

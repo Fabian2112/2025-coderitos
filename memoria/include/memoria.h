@@ -34,7 +34,10 @@ void* atender_memoria_cpu(void* arg);
 void mostrar_contenido_archivo(FILE* archivo, t_log* logger);
 char* entregar_linea(FILE* archivo, t_log* logger, int buffer_size);
 
-//void leer_consola(t_log* logger);
-//void atender_memoria_kernel(char marcos_libres[]);
+void simular_retardo_swap();
+void procesar_envio_archivo_kernel(int fd_kernel);
+void procesar_crear_proceso(int fd_kernel);
+t_proceso* crear_proceso(int pid);
+
 
 #endif // MEMORIA_MAIN_H

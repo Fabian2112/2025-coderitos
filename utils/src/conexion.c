@@ -7,6 +7,13 @@ bool conexion_activa = true;
 bool syscall_en_proceso = false;
 t_log* logger_conexiones = NULL;
 t_datos_kernel datos_kernel = {NULL, 0};
+int total_marcos;
+bool* marcos_libres;
+t_dictionary* procesos_activos;
+t_dictionary* procesos_suspendidos; 
+FILE* swap_file;
+char* memoria_fisica = NULL;
+t_list* operaciones_io_activas;
 
 // Definición e inicialización de los mutex
 pthread_mutex_t mutex_instruccion = PTHREAD_MUTEX_INITIALIZER;
@@ -20,17 +27,20 @@ pthread_mutex_t mutex_instruccion_pendiente = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_archivo_rewind = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_archivo_instrucciones = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t mutex_archivo_cierre = PTHREAD_MUTEX_INITIALIZER;
-
+pthread_mutex_t mutex_swap = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_marcos = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t mutex_procesos = PTHREAD_MUTEX_INITIALIZER; // Mutex para acceso a procesos activos y suspendidos
+pthread_mutex_t mutex_io_activas = PTHREAD_MUTEX_INITIALIZER;
 // Definición e inicialización de variables de condición
 pthread_cond_t cond_instruccion = PTHREAD_COND_INITIALIZER;
 
-sem_t sem_kernel_memoria_hs;       
-sem_t sem_kernel_cpu_hs;           
-sem_t sem_memoria_kernel_ready;    
-sem_t sem_memoria_cpu_hs;         
+sem_t sem_kernel_memoria_hs;
+sem_t sem_kernel_cpu_hs;
+sem_t sem_memoria_kernel_ready;
+sem_t sem_memoria_cpu_hs;
 sem_t sem_cpu_memoria_hs;         
-sem_t sem_cpu_kernel_hs;           
-sem_t sem_archivo_listo;           
+sem_t sem_cpu_kernel_hs;
+sem_t sem_archivo_listo;
 sem_t sem_instruccion_lista;
 sem_t sem_servidor_cpu_listo;
 sem_t sem_instruccion_disponible;
@@ -38,6 +48,8 @@ sem_t sem_instruccion_cpu_kernel;
 sem_t sem_modulos_conectados;
 sem_t sem_instruccion_procesada;
 sem_t sem_syscall_procesada; // Sincronización para indicar que una syscall ha sido procesada
+sem_t sem_io_completada; // Sincronización para indicar que una operación de I/O ha sido completada
+
 
 void inicializar_sincronizacion() {
     // Inicialización explícita (aunque los INITIALIZER ya lo hacen)
@@ -53,7 +65,10 @@ void inicializar_sincronizacion() {
     pthread_mutex_init(&mutex_archivo_rewind, NULL);
     pthread_mutex_init(&mutex_archivo_instrucciones, NULL);
     pthread_mutex_init(&mutex_archivo_cierre, NULL);
-
+    pthread_mutex_init(&mutex_swap, NULL);
+    pthread_mutex_init(&mutex_marcos, NULL);
+    pthread_mutex_init(&mutex_procesos, NULL); // Mutex para acceso a procesos activos y suspendidos
+    pthread_mutex_init(&mutex_io_activas, NULL);
 }
 
 void destruir_sincronizacion() {
@@ -79,6 +94,7 @@ void inicializar_semaforos() {
     sem_init(&sem_modulos_conectados, 0, 0);
     sem_init(&sem_instruccion_procesada, 0, 0); // Inicializado en 0 para esperar instrucciones
     sem_init(&sem_syscall_procesada, 0, 0); // Inicializado en 0 para esperar syscalls
+    sem_init(&sem_io_completada, 0, 0); // Inicializado en 0 para esperar operaciones de I/O
 }
 
 void destruir_semaforos() {
@@ -151,4 +167,33 @@ void liberar_paquete(t_paquete* paquete) {
         }
         free(paquete);
     }
+}
+
+bool limpiar_buffer_completo(int socket_fd) {
+    char buffer[1024];
+    int bytes_residuales = 0;
+    int total_limpiado = 0;
+    
+    // Usar MSG_DONTWAIT para no bloquear
+    while((bytes_residuales = recv(socket_fd, buffer, sizeof(buffer), MSG_DONTWAIT)) > 0) {
+        total_limpiado += bytes_residuales;
+        log_debug(logger, "Limpiados %d bytes residuales", bytes_residuales);
+    }
+    
+    if(total_limpiado > 0) {
+        log_info(logger, "Buffer limpiado completamente: %d bytes total", total_limpiado);
+    }
+    
+    return total_limpiado > 0;
+}
+
+// Función específica para limpiar buffer antes de operaciones críticas
+bool limpiar_buffer_antes_operacion(int socket_fd, const char* operacion) {
+    bool habia_datos = limpiar_buffer_completo(socket_fd);
+    
+    if(habia_datos) {
+        log_warning(logger, "Se encontraron datos residuales antes de %s en socket %d", operacion, socket_fd);
+    }
+    
+    return habia_datos;
 }
