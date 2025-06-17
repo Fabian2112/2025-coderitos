@@ -1,0 +1,24 @@
+{
+    "files.associations": {
+        "errno.h": "c",
+        "stdlib.h": "c",
+        "hello.h": "c",
+        "unistd.h": "c",
+        "assert.h": "c",
+        "temporal.h": "c",
+        "readline.h": "c",
+        "netdb.h": "c",
+        "semaphore.h": "c",
+        "conexion.h": "c",
+        "cliente.h": "c",
+        "stdio.h": "c",
+        "server.h": "c",
+        "queue.h": "c",
+        "memoria.h": "c",
+        "cpu.h": "c",
+        "kernel.h": "c",
+        "type_traits": "c",
+        "protocolo.h": "c"
+    },
+    "C_Cpp.errorSquiggles": "disabled"
+}

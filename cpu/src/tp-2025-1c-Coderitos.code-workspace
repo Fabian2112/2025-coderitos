@@ -1,0 +1,19 @@
+{
+	"folders": [
+		{
+			"path": "../.."
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"cpu.h": "c",
+			"server.h": "c",
+			"memoria.h": "c",
+			"cliente.h": "c",
+			"conexion.h": "c",
+			"protocolo.h": "c",
+			"kernel.h": "c",
+			"stdio.h": "c"
+		}
+	}
+}
